@@ -1,0 +1,173 @@
+# ===== Cấu hình HandGameController =====
+# Mọi ngưỡng đều có thể chỉnh ở đây mà không cần sửa code.
+
+camera:
+  index: 0              # 0 = webcam mặc định
+  width: 640
+  height: 480
+  fps: 60               # xin 60 FPS; camera không hỗ trợ sẽ tự lùi về 30
+  mjpg: true            # định dạng MJPG giúp đạt FPS cao trên webcam USB/tích hợp
+
+preprocess:
+  flip: true            # lật gương để tay trái trên màn hình = tay trái thật
+  clahe_auto: true      # tự bật CLAHE khi ảnh tối
+  clahe_brightness_threshold: 90   # độ sáng trung bình kênh L (0-255) dưới mức này thì bật CLAHE
+  clahe_clip_limit: 2.0
+  clahe_grid: 8
+
+tracker:
+  model_path: models/gesture_recognizer.task   # MediaPipe Gesture Recognizer (Google, Apache 2.0)
+  num_hands: 2
+  min_detection_confidence: 0.6
+  min_presence_confidence: 0.5
+  min_tracking_confidence: 0.5
+  swap_handedness: true    # đo trên video thật: ảnh đã lật gương -> MediaPipe gán NGƯỢC tay ~95% -> đảo lại
+
+mapping:
+  # Vùng hoạt động trong khung camera (tọa độ chuẩn hóa 0..1) được kéo giãn ra toàn màn hình.
+  # Vùng nhỏ hơn = tay di chuyển ít mà con trỏ đi xa.
+  # Dịch lên trên để giữ tay cao, cổ tay luôn nằm trong khung (MediaPipe cần thấy lòng bàn tay).
+  region: [0.15, 0.05, 0.85, 0.68]   # x0, y0, x1, y1 (mặc định cho mọi chế độ)
+  region_by_mode:                    # vùng riêng cho từng chế độ (khung xám trong khung camera)
+    # BẮN V1: hạ thấp ngang tầm cánh tay (tay không che màn hình) và lệch sang TRÁI vì bắn bằng tay trái
+    shoot_v1: [0.05, 0.35, 0.75, 0.97]
+    # BẮN V2: to nhất có thể (gần trọn khung hình) vì cần di chuyển nhiều
+    shoot_v2: [0.02, 0.02, 0.98, 0.98]
+
+smoothing:              # bộ lọc One Euro
+  min_cutoff: 1.0       # càng nhỏ càng mượt nhưng càng trễ khi tay đứng yên
+  beta: 8.0             # càng lớn càng ít trễ khi tay di chuyển nhanh
+  d_cutoff: 1.0
+
+fingers:
+  # Đo trên tọa độ 3D thật (world landmarks). Ngưỡng lấy từ video thật: ngón duỗi 141-165°, ngón gập 75-115°
+  # Góc tại khớp PIP (độ). Lớn hơn extend_angle -> DUỖI, nhỏ hơn fold_angle -> CỤP (vùng giữa = hysteresis)
+  extend_angle: 140
+  fold_angle: 118
+  # Ngón cái (chỉ để hiển thị/tư thế): |đầu ngón cái - gốc ngón giữa| / lòng bàn tay
+  thumb_extend_ratio: 0.70
+  thumb_fold_ratio: 0.52
+  debounce_frames: 2    # số frame liên tiếp cần để đổi trạng thái (2 frame ~ 66 ms ở 30 FPS)
+  # Khép trỏ + giữa: khoảng cách CẢ NGÓN (trung bình cặp 7-11, 8-12) / lòng bàn tay
+  together_ratio: 0.26  # nhỏ hơn -> chắc chắn KHÉP
+  spread_ratio: 0.42    # lớn hơn -> chắc chắn TÁCH; ở giữa -> xem ẢNH có lộ khe nền giữa 2 ngón không
+  gap_max: 0.25         # tỉ lệ pixel "không giống da" giữa 2 ngón nhỏ hơn mức này -> không có khe -> KHÉP
+  lost_timeout: 0.3     # giây mất tay / frame bị loại thì vẫn dùng tay cũ, quá lâu thì nhả hết
+
+touch:                  # CLICK TRÁI = đầu ngón cái CHẠM chỗ nào trên đường ngón trỏ (gốc -> đầu ngón). F5 để hiệu chỉnh
+  # Đo trên video thật: lúc KHÔNG chạm, ngón cái vẫn hay ở khá gần (10% frame: 2D < 0.24, 3D < 0.32)
+  touch_on_2d: 0.15     # khoảng cách trên ảnh / lòng bàn tay (2D) nhỏ hơn ...
+  # 3D chỉ để loại trường hợp ngón cái ở xa hẳn theo chiều sâu: độ sâu của webcam 1 mắt rất nhiễu
+  # (thử thực tế: chạm rõ trên ảnh 2D = 0.03 nhưng 3D vẫn > 0.22) -> ngưỡng 3D để lỏng
+  touch_on_3d: 0.45     # ... VÀ khoảng cách 3D / lòng bàn tay nhỏ hơn -> CHẠM
+  touch_off_2d: 0.22    # một trong hai lớn hơn mức nhả -> TÁCH (vùng giữa = hysteresis)
+  touch_off_3d: 0.55
+  approach_2d: 0.26     # nhỏ hơn -> "sắp chạm" -> khóa con trỏ trước khi click
+  touch_debounce: 2
+
+middle_half:            # CLICK PHẢI = ngón giữa duỗi NỬA CHỪNG: độ dài ngón giữa / ngón trỏ trên ảnh nằm trong khoảng
+  half_lo: 0.25         # ... từ half_lo
+  half_hi: 0.70         # ... tới half_hi (duỗi thẳng ~1.0, gập hẳn < 0.2)
+  off_lo: 0.18          # đang click phải: nhỏ hơn mức này (gập hẳn) -> nhả
+  off_hi: 0.80          # ... hoặc lớn hơn mức này (duỗi thẳng) -> nhả
+  frames: 3             # phải giữ ở nửa chừng 3 frame liên tiếp ...
+  steady: 0.08          # ... và gần như đứng yên (thay đổi < mức này/frame) -> lúc gập/duỗi nhanh không bị tính
+
+gestures:               # lọc cử chỉ lạ
+  stable_frames: 4      # tư thế phải được đa số trong 4 frame gần nhất ...
+  stable_need: 3        # ... (ít nhất 3/4) mới được chấp nhận
+  model_min_score: 0.6  # nhãn của mô hình Google mâu thuẫn với luật hình học (điểm >= mức này) -> loại
+  vertical_max_deg: 45  # V1: ngón trỏ lệch khỏi phương thẳng đứng tối đa bao nhiêu độ thì tính là "bàn tay dọc"
+  foreshorten_min: 0.45 # độ dài ngón trỏ trên ảnh / độ dài thật < giá trị này -> đang chĩa vào camera -> loại
+  edge_margin: 0.02     # từ 2 khớp gốc ngón (5, 9, 13, 17) ra ngoài khung quá mức này -> loại
+  wrist_y_max: 1.10     # cổ tay thấp hơn mép dưới quá nhiều -> loại (cổ tay SÁT mép dưới vẫn nhận)
+  jump_ratio: 1.0       # cổ tay nhảy xa hơn 1 lòng bàn tay trong 1 frame -> loại frame đó
+
+circle:                 # vẽ vòng tròn bằng ngón trỏ tay phải để nhận diện game
+  window_sec: 1.6
+  min_points: 15
+  min_radius: 0.04      # theo tọa độ chuẩn hóa của khung camera
+  max_radius_cv: 0.35   # độ lệch chuẩn bán kính / bán kính trung bình
+  min_sweep_deg: 300
+  close_ratio: 0.6      # khoảng cách điểm đầu-cuối / đường kính (0.6 ~ cho phép hở ~70 độ)
+  cooldown_sec: 2.5
+
+profiles:
+  start_mode: slice     # slice | shoot_v1 | shoot_v2
+  v1_fire_on_close: true          # V1: ngón cái GẬP vào lòng bàn tay / CHẠM ngón trỏ cũng là bắn
+  v1_bend_drop: 35                # V1 BÓP CÒ: góc khớp thứ 2 ngón cái giảm ít nhất bấy nhiêu độ so với lúc thẳng ...
+  v1_bend_below: 130              # ... VÀ nhỏ hơn bấy nhiêu độ -> BẮN (tăng = nhạy hơn nhưng dễ bắn nhầm)
+  v1_twitch_warmup_ms: 300        # V1: vừa giơ súng thì chưa xét gập ngón cái trong bấy nhiêu ms
+  click_hold_ms: 300              # nhả trước mức này = CLICK (con trỏ khóa tại chỗ); giữ lâu hơn = GIỮ CHUỘT (con trỏ theo tay để kéo / bôi đen)
+  # --- con trỏ "dính" (chuột tuyệt đối) ---
+  still_speed: 0.08               # tay chậm hơn mức này (màn hình/giây) ...
+  still_ms: 80                    # ... trong bấy nhiêu ms -> con trỏ đứng im
+  still_release: 0.008            # tay rời điểm giữ quá mức này (theo bề rộng màn hình) -> chạy tiếp
+  rollback_ms: 100                # khi khóa để click: lùi về vị trí của bấy nhiêu ms trước
+  # --- V2 ---
+  # Cách xoay màn hình của tay phải trong trận (xem docs/04_cac_cach_xoay_man_hinh.md)
+  aim_style: rate                 # rate = kiểu CẦN GẠT (lệch khỏi tâm -> xoay liên tục) | delta = kiểu chuột thật
+  # 3 vòng quanh tâm tay phải (theo chiều cao màn hình), vẽ ghim giữa màn hình:
+  aim_deadzone: 0.02              # vòng 1 (nhỏ): tay dao động trong đây -> KHÔNG xoay (chống giật)
+  aim_point_radius: 0.30          # vòng 2 (rộng nhất): CHỈ ĐÂU NHÌN ĐÓ - màn hình xoay để điểm tay chỉ về tâm ngắm
+  aim_point_gain: 1.0             # vòng 2: xoay nhiều/ít so với chỗ tay chỉ (tăng nếu màn hình xoay chưa tới)
+  aim_settle_ms: 250              # vòng 2: tay đứng yên bấy nhiêu ms sau khi xoay -> chỗ đặt tay thành TÂM MỚI
+  aim_settle_speed: 0.15          # ... 'đứng yên' = tay chậm hơn mức này (chiều cao màn hình / giây)
+  aim_radius: 0.42                # vòng 3 (ngoài cùng): từ vòng 2 tới đây xoay LIÊN TỤC, nhanh nhất ở mép này
+  lost_keep_sec: 3.0              # mất tay khi đang xoay (vòng ngoài) / đang đi -> tiếp tục hướng cũ tối đa bấy nhiêu giây
+  aim_max_speed: 0.8              # rate: tốc độ xoay lớn nhất (đơn vị màn hình / giây, x relative_sensitivity)
+  aim_curve: 1.7                  # rate: >1 -> lệch ít xoay rất chậm (ngắm tinh), lệch nhiều xoay nhanh
+  aim_vertical_scale: 1.0         # tốc độ xoay LÊN/XUỐNG so với ngang: 1 = như nhau mọi hướng (0.1 = dọc chậm 10 lần)
+  rotate_smooth_ms: 60            # rate: thời gian vận tốc xoay đổi dần tới giá trị mới (lớn = mượt hơn, trễ hơn)
+  edge_zone: 0.08                 # delta: tay phải trong 8% sát mép vùng hoạt động -> xoay liên tục
+  edge_speed: 0.5                 # tốc độ xoay ở vùng rìa (đơn vị màn hình / giây)
+  fine_speed: 0.25                # tay chậm hơn -> nhân fine_gain (ngắm tinh)
+  fine_gain: 0.3
+  fast_speed: 1.5                 # tay nhanh hơn -> nhân fast_gain (xoay nhanh)
+  fast_gain: 1.6
+  dir_smooth: 0.35                # làm mượt hướng đi của tay trái (0..1, nhỏ = mượt hơn)
+  dir_hyst_deg: 8                 # vùng trễ giữa 8 hướng
+  anchor_sec: 3.0                 # V2: mất tay trái lâu hơn -> xóa vị trí gốc, lần sau lưu lại
+  joystick_radius: 0.12           # V2: bán kính cần điều khiển (theo chiều cao màn hình); núm = chấm sáng tay trái
+  joystick_deadzone: 0.35         # V2: chấm cách tâm ít hơn (bán kính x hệ số này) -> mặc định đi thẳng (W)
+  # --- con trỏ (luồng 120 Hz) ---
+  cursor_hz: 120
+  cursor_tau_ms: 15               # độ mượt: càng lớn càng mượt nhưng con trỏ càng trễ so với vệt sáng
+  cursor_lead_ms: 16              # dự đoán trước theo vận tốc để bù trễ
+  cursor_deadzone_px: 2
+  cursor_max_lead_px: 40
+  relative_sensitivity: 1800      # chuột tương đối: pixel cho mỗi 1.0 đơn vị dịch chuyển chuẩn hóa
+  relative_accel: 0               # V2 đã có đường cong fine/fast ở trên
+  keys:
+    up: w
+    down: s
+    left: a
+    right: d
+    jump: space
+    reload: r
+  pause_key: esc
+
+hotkeys:
+  calibrate: f5
+  toggle_preview: f6
+  toggle_mouse_mode: f7
+  cycle_mode: f8
+  toggle_enabled: f9
+  quit: f10
+
+overlay:
+  trail_sec: 0.35
+  color_right: [0, 255, 240]    # xanh neon (RGB)
+  color_left: [255, 60, 220]    # hồng neon
+  show_hud: true
+  camera_preview: true          # ảnh camera + khớp ngón tay ở góc màn hình (F6 ẩn/hiện)
+  preview_width: 360            # chiều rộng ảnh xem trước (pixel)
+  preview_corner: bottom-right  # bottom-right | bottom-left | top-right | top-left
+  preview_opacity: 0.92
+
+game_detect:
+  db_path: games/db.json
+  hash_max_distance: 10          # khoảng cách Hamming tối đa của dHash 64-bit
+  hist_min_correlation: 0.70
+  model: claude-opus-5-5
+  screenshot_max_width: 1024

@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.env
+models/*.task
+games/
+docs/images/*.raw.png
+
+calibration.json
+models/*.task
